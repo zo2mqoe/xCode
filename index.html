@@ -54,6 +54,7 @@
             padding: 15px; 
             border-radius: 8px; 
             margin-top: 25px;
+            text-align: left;
         }
         .btn-location {
             padding: 12px 20px;
@@ -65,6 +66,7 @@
             margin-bottom: 10px;
         }
         .error { color: red; font-weight: bold; }
+        .status { font-weight: bold; }
 
         /* Earthquake Section */
         #earthquake-box { 
@@ -91,7 +93,6 @@
             color: white; 
             margin-right: 15px;
         }
-        /* การกำหนดสีตามขนาด (Magnitude) */
         .mag-4-plus { background-color: #dc3545; } 
         .mag-2-to-4 { background-color: #ffc107; color: #333; } 
     </style>
@@ -114,7 +115,8 @@
             <button onclick="getUserLocation()" class="btn-location">
                 คลิกเพื่อค้นหาตำแหน่งปัจจุบัน
             </button>
-            <p id="location-status" class="status" style="font-weight: bold;">รอการระบุตำแหน่งอัตโนมัติ...</p>
+            <p id="location-status" class="status">รอการระบุตำแหน่งอัตโนมัติ...</p>
+            <div id="ip-address" style="margin-bottom: 15px;"></div>
             <div id="user-location"></div>
         </div>
 
