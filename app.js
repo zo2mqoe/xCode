@@ -5,7 +5,6 @@ let userAddress = {};
 let earthquakeFeatures = []; 
 
 const CACHE_KEY = 'earthquakeDataCache';
-const HISTORY_KEY = 'locationHistoryCache'; 
 const CACHE_DURATION_MS = 3600000; 
 
 // >>>>> [สำคัญ!] แทนที่ URL นี้ด้วย URL Web App ที่คุณได้จาก Google Apps Script <<<<<
@@ -40,10 +39,11 @@ function displayInput() {
 
 
 // **********************************************
-// ส่วนที่ 2: การจัดการประวัติการค้นหา (History Logic)
+// ส่วนที่ 2: การจัดการประวัติการค้นหา (Shared History Logic)
 // **********************************************
 
-function saveLocationToHistory() {
+// ----------------- [แก้ไข: ส่งข้อมูลไปบันทึกที่ Google Sheet] -----------------
+async function saveLocationToHistory() {
     if (userLat === null || userLon === null || userAddress.province === undefined) {
         return; 
     }
@@ -64,66 +64,74 @@ function saveLocationToHistory() {
         address: userAddress 
     };
 
-    let history = [];
+    const payload = {
+        action: "SAVE_HISTORY",
+        payload: historyEntry
+    };
+    
+    // ส่งข้อมูลไปบันทึกผ่าน Web App Proxy
     try {
-        const cachedHistory = localStorage.getItem(HISTORY_KEY);
-        if (cachedHistory) {
-            history = JSON.parse(cachedHistory);
-        }
+        await fetch(DISCORD_PROXY_URL, {
+            method: 'POST',
+            mode: 'no-cors', 
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        displayHistory(); // แสดงผลประวัติใหม่ทันที
     } catch (e) {
-        console.error("Failed to parse history cache:", e);
+        console.error("Failed to save history to Google Sheet:", e);
+        // แสดงผลเฉพาะ Local Storage เดิมถ้าการบันทึกล้มเหลว (เผื่อกรณีฉุกเฉิน)
     }
-    
-    history.unshift(historyEntry); 
-    if (history.length > 20) {
-        history.pop(); 
-    }
-    
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
-    displayHistory(); 
 }
 
-function displayHistory() {
-    let history = [];
+// ----------------- [แก้ไข: ดึงข้อมูลจาก Google Sheet] -----------------
+async function displayHistory() {
+    historyElement.innerHTML = '<p style="color:#007bff;">กำลังดึงประวัติการค้นหาจากฐานข้อมูลส่วนกลาง...</p>';
+    
     try {
-        const cachedHistory = localStorage.getItem(HISTORY_KEY);
-        if (cachedHistory) {
-            history = JSON.parse(cachedHistory);
+        // ใช้ GET request เพื่อดึงข้อมูลประวัติ
+        const response = await fetch(`${DISCORD_PROXY_URL}?action=GET_HISTORY`);
+        
+        if (!response.ok) {
+            historyElement.innerHTML = '<p class="error">❌ ไม่สามารถเชื่อมต่อกับฐานข้อมูลประวัติได้ (HTTP Error)</p>';
+            return;
         }
+
+        const history = await response.json();
+        
+        if (!Array.isArray(history) || history.length === 0) {
+            historyElement.innerHTML = '<p>ยังไม่มีประวัติการค้นหาตำแหน่งที่ถูกบันทึกไว้ในฐานข้อมูล</p>';
+            return;
+        }
+
+        let historyHTML = '<ul style="list-style-type: none; padding-left: 0;">';
+        history.forEach((item, index) => {
+            const mainAddress = item.address.province !== 'ไม่ระบุ' 
+                                ? `${item.address.province}, ${item.address.district}`
+                                : item.address.road;
+
+            historyHTML += `
+                <li style="border-bottom: 1px dashed #ccc; padding: 8px 0;">
+                    <strong style="color: #007bff;">#${index + 1}</strong> 
+                    <strong>เวลา:</strong> ${item.timeString || item.timestamp}<br>
+                    <strong>พิกัด:</strong> ${item.lat}, ${item.lon}<br>
+                    <strong>ที่อยู่หลัก:</strong> ${mainAddress}<br>
+                    <strong>IP:</strong> ${item.ip}
+                </li>
+            `;
+        });
+        historyHTML += '</ul>';
+        historyElement.innerHTML = historyHTML;
+
     } catch (e) {
-        historyElement.innerHTML = '<p class="error">❌ ข้อผิดพลาดในการโหลดประวัติ</p>';
-        return;
+        console.error("Error fetching shared history:", e);
+        historyElement.innerHTML = '<p class="error">❌ ข้อผิดพลาดในการโหลดประวัติจาก Web App Proxy. ตรวจสอบ URL</p>';
     }
-
-    if (history.length === 0) {
-        historyElement.innerHTML = '<p>ยังไม่มีประวัติการค้นหาตำแหน่งที่ถูกบันทึกไว้</p>';
-        return;
-    }
-
-    let historyHTML = '<ul style="list-style-type: none; padding-left: 0;">';
-    history.forEach((item, index) => {
-        const mainAddress = item.address.province !== 'ไม่ระบุ' 
-                            ? `${item.address.province}, ${item.address.district}`
-                            : item.address.road;
-
-        historyHTML += `
-            <li style="border-bottom: 1px dashed #ccc; padding: 8px 0;">
-                <strong style="color: #007bff;">#${index + 1}</strong> 
-                <strong>เวลา:</strong> ${item.timeString}<br>
-                <strong>พิกัด:</strong> ${item.lat}, ${item.lon}<br>
-                <strong>ที่อยู่หลัก:</strong> ${mainAddress}<br>
-                <strong>IP:</strong> ${item.ip}
-            </li>
-        `;
-    });
-    historyHTML += '</ul>';
-    historyElement.innerHTML = historyHTML;
 }
 
+// ----------------- [แก้ไข: ล้างประวัติไม่ได้แล้ว ต้องล้างใน Google Sheet โดยตรง] -----------------
 function clearHistory() {
-    localStorage.removeItem(HISTORY_KEY);
-    displayHistory();
-    alert('ล้างประวัติการค้นหาทั้งหมดเรียบร้อยแล้ว');
+    alert('เนื่องจากประวัติถูกย้ายไปเก็บที่ Google Sheets ส่วนกลางแล้ว คุณต้องลบข้อมูลโดยตรงจาก Google Sheet ของคุณครับ');
 }
 
 
@@ -132,6 +140,7 @@ function clearHistory() {
 // **********************************************
 
 function calculateDistance(lat1, lon1, lat2, lon2) {
+    // ... (โค้ดเดิม)
     const R = 6371; 
     const dLat = (lat2 - lat1) * (Math.PI / 180);
     const dLon = (lon2 - lon1) * (Math.PI / 180);
@@ -146,6 +155,7 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 }
 
 function fetchEarthquakeData() {
+    // ... (โค้ดเดิม)
     resultsElement.innerHTML = '<p>กำลังดึงข้อมูลแผ่นดินไหว...</p>';
     
     const cachedData = localStorage.getItem(CACHE_KEY);
@@ -195,7 +205,7 @@ function fetchEarthquakeData() {
         });
 }
 
-// ฟังก์ชันส่งแจ้งเตือนไปยัง Discord ผ่าน Webhook Proxy
+// ----------------- [แก้ไข: ส่ง Action DISCORD_ALERT ไป Web App] -----------------
 function notifyDiscord(feature) {
     if (DISCORD_PROXY_URL === "YOUR_GOOGLE_APPS_SCRIPT_URL") return; 
 
@@ -208,14 +218,23 @@ function notifyDiscord(feature) {
     else if (props.mag >= 5.0) color = 16744448; 
     else if (props.mag >= 4.0) color = 16776960; 
 
-    const payload = {
-        title: `🚨 แผ่นดินไหวขนาด ${props.mag.toFixed(1)} ใกล้ ${props.place}`,
-        embedTitle: `Magnitude ${props.mag.toFixed(1)}: ${props.place}`,
-        description: `เกิดขึ้นเมื่อ: ${new Date(props.time).toLocaleString('th-TH', { hour12: false, year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
-        color: color,
-        distance: distanceText,
-        coords: `Lat: ${coords[1].toFixed(2)}, Lon: ${coords[0].toFixed(2)}`,
-        source: props.url || 'USGS'
+    const discordPayload = {
+        content: `🚨 แผ่นดินไหวขนาด ${props.mag.toFixed(1)} ใกล้ ${props.place}`,
+        embeds: [{
+            title: `Magnitude ${props.mag.toFixed(1)}: ${props.place}`,
+            description: `เกิดขึ้นเมื่อ: ${new Date(props.time).toLocaleString('th-TH', { hour12: false, year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+            color: color,
+            fields: [
+                { name: "📏 ระยะห่างจากคุณ", value: distanceText, inline: true },
+                { name: "📍 พิกัด", value: `Lat: ${coords[1].toFixed(2)}, Lon: ${coords[0].toFixed(2)}`, inline: true },
+                { name: "🌐 แหล่งที่มา", value: props.url || 'USGS', inline: false }
+            ]
+        }]
+    };
+    
+    const finalPayload = {
+        action: "DISCORD_ALERT",
+        payload: discordPayload
     };
 
     fetch(DISCORD_PROXY_URL, {
@@ -224,7 +243,7 @@ function notifyDiscord(feature) {
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(finalPayload)
     }).catch(error => {
         console.error('Error sending Discord notification:', error);
     });
@@ -261,7 +280,7 @@ function updateEarthquakeResults() {
         }
         
         let magnitudeClass = (props.mag >= 4.0) ? 'mag-4-plus' : 'mag-2-to-4';
-
+        // ... (โค้ดส่วนแสดงผล HTML เหมือนเดิม) ...
         const time = new Date(props.time).toLocaleString('th-TH', { 
             hour12: false, 
             year: 'numeric', 
@@ -298,7 +317,8 @@ function updateEarthquakeResults() {
 // ส่วนที่ 4: Geolocation, IP และ Reverse Geocoding
 // **********************************************
 
-// ฟังก์ชันดึง IP Address
+// ... (โค้ดส่วนนี้เหมือนเดิม: fetchIpAddress, getUserLocation, showPosition, showError)
+
 function fetchIpAddress() {
     ipElement.innerHTML = 'กำลังค้นหา IP Address...';
     fetch('https://api.ipify.org?format=json')
@@ -315,7 +335,6 @@ function fetchIpAddress() {
 }
 
 
-// ฟังก์ชันหลักในการขอตำแหน่งปัจจุบัน
 function getUserLocation() {
     if (navigator.geolocation) {
         statusElement.textContent = 'กำลังค้นหาตำแหน่ง...';
@@ -334,7 +353,6 @@ function getUserLocation() {
     }
 }
 
-// ฟังก์ชันเมื่อได้รับตำแหน่งสำเร็จ
 function showPosition(position) {
     userLat = position.coords.latitude;
     userLon = position.coords.longitude;
@@ -346,7 +364,6 @@ function showPosition(position) {
     fetchEarthquakeData();
 }
 
-// ฟังก์ชันสำหรับ Reverse Geocoding (แสดงเลขที่บ้าน/ถนน)
 function reverseGeocode(lat, lon) {
     const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&addressdetails=1&accept-language=th`;
 
@@ -399,7 +416,6 @@ function reverseGeocode(lat, lon) {
     });
 }
 
-// ฟังก์ชันเมื่อเกิดข้อผิดพลาดในการขอตำแหน่ง
 function showError(error) {
     let errorMessage = '';
     switch(error.code) {
