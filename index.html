@@ -126,6 +126,19 @@
                 <p>รอการระบุตำแหน่งเพื่อเริ่มดึงข้อมูลและคำนวณระยะทาง...</p>
             </div>
         </div>
+
+        <div id="history-box" style="margin-top: 30px; background-color: #f7fff0; border-left: 5px solid #28a745; padding: 15px; border-radius: 8px;">
+            <h2>📜 ประวัติการค้นหาตำแหน่งล่าสุด</h2>
+            <button onclick="displayHistory()" class="btn-input" style="background-color: #28aa9f; margin-bottom: 10px;">
+                แสดงประวัติการค้นหาทั้งหมด
+            </button>
+            <button onclick="clearHistory()" class="btn-input" style="background-color: #ffc107; margin-bottom: 10px;">
+                ล้างประวัติ
+            </button>
+            <div id="location-history">
+                <p>ประวัติจะถูกบันทึกเมื่อค้นหาตำแหน่งสำเร็จ...</p>
+            </div>
+        </div>
     </div>
     
     <script src="app.js"></script>
