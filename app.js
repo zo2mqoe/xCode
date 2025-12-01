@@ -7,6 +7,7 @@ const CACHE_DURATION_MS = 3600000; // 1 ชั่วโมง
 const locationElement = document.getElementById('user-location');
 const statusElement = document.getElementById('location-status');
 const resultsElement = document.getElementById('earthquake-results');
+const ipElement = document.getElementById('ip-address');
 
 
 // **********************************************
@@ -45,18 +46,16 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
     return distance;
 }
 
-// ดึงข้อมูลแผ่นดินไหวจาก API หรือ Cache (รองรับออฟไลน์)
 function fetchEarthquakeData() {
     resultsElement.innerHTML = '<p>กำลังดึงข้อมูลแผ่นดินไหว...</p>';
     
-    // 1. ตรวจสอบ Local Storage (Cache)
     const cachedData = localStorage.getItem(CACHE_KEY);
     if (cachedData) {
         try {
             const cache = JSON.parse(cachedData);
             if (Date.now() < cache.expiry) {
                 earthquakeFeatures = cache.data;
-                resultsElement.innerHTML = '<p>กำลังแสดงข้อมูลจากแคชที่บันทึกไว้ (ใช้งานออฟไลน์/ข้อมูลอาจเก่า)...</p>';
+                resultsElement.innerHTML = '<p>กำลังแสดงข้อมูลจากแคชที่บันทึกไว้ (ข้อมูลเก่า)...</p>';
                 updateEarthquakeResults();
                 return; 
             }
@@ -65,7 +64,6 @@ function fetchEarthquakeData() {
         }
     }
     
-    // 2. ดึงข้อมูลออนไลน์
     resultsElement.innerHTML = '<p>กำลังดึงข้อมูลแผ่นดินไหวจาก USGS (ออนไลน์)...</p>';
     const USGS_API = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=now-7days&minmagnitude=2`;
 
@@ -79,7 +77,6 @@ function fetchEarthquakeData() {
         .then(data => {
             earthquakeFeatures = data.features;
             
-            // 3. บันทึกข้อมูลลงใน Local Storage
             const cacheToSave = {
                 data: earthquakeFeatures,
                 expiry: Date.now() + CACHE_DURATION_MS 
@@ -90,8 +87,6 @@ function fetchEarthquakeData() {
         })
         .catch(error => {
             resultsElement.innerHTML = `<p class="error">❌ เกิดข้อผิดพลาดในการดึงข้อมูลออนไลน์: ${error.message}</p>`;
-            
-            // 4. ถ้าดึงออนไลน์ล้มเหลว ให้ลองโหลดแคชที่หมดอายุมาแสดงแทน
             if (cachedData) {
                  const cache = JSON.parse(cachedData);
                  earthquakeFeatures = cache.data;
@@ -102,7 +97,6 @@ function fetchEarthquakeData() {
 }
 
 
-// แสดงผลและคำนวณระยะทางแผ่นดินไหว (Ranking)
 function updateEarthquakeResults() {
     resultsElement.innerHTML = ''; 
 
@@ -111,14 +105,12 @@ function updateEarthquakeResults() {
         return;
     }
     
-    // คำนวณระยะทางและเรียงลำดับ (Ranking)
     if (userLat !== null && userLon !== null) {
         earthquakeFeatures.forEach(feature => {
             const eqLat = feature.geometry.coordinates[1];
             const eqLon = feature.geometry.coordinates[0];
             feature.distance = calculateDistance(userLat, userLon, eqLat, eqLon);
         });
-        // เรียงลำดับจากใกล้ไปไกล (ลำดับที่ 1 คือใกล้ที่สุด)
         earthquakeFeatures.sort((a, b) => a.distance - b.distance);
     }
     
@@ -126,7 +118,6 @@ function updateEarthquakeResults() {
     countHeader.textContent = `พบ ${earthquakeFeatures.length} เหตุการณ์ (แสดง 50 อันดับแรกที่ใกล้คุณที่สุด)`;
     resultsElement.appendChild(countHeader);
 
-    // วนแสดงผล (แสดงแค่ 50 เหตุการณ์แรก)
     earthquakeFeatures.slice(0, 50).forEach((feature, index) => {
         const props = feature.properties;
         
@@ -141,7 +132,6 @@ function updateEarthquakeResults() {
             minute: '2-digit'
         });
 
-        // แสดงระยะทาง
         let distanceText = '';
         if (userLat !== null && userLon !== null && feature.distance !== undefined) {
             const distance = feature.distance; 
@@ -166,8 +156,23 @@ function updateEarthquakeResults() {
 
 
 // **********************************************
-// ส่วนที่ 3: Geolocation และ Reverse Geocoding (Timeout 20s)
+// ส่วนที่ 3: Geolocation, IP และ Reverse Geocoding
 // **********************************************
+
+// ฟังก์ชันดึง IP Address
+function fetchIpAddress() {
+    ipElement.innerHTML = 'กำลังค้นหา IP Address...';
+    fetch('https://api.ipify.org?format=json')
+        .then(response => response.json())
+        .then(data => {
+            ipElement.innerHTML = `🌐 **IP Address ของคุณ:** <span style="font-weight: bold; color: #007bff;">${data.ip}</span>`;
+        })
+        .catch(error => {
+            ipElement.innerHTML = `<span class="error">❌ ไม่สามารถดึง IP Address ได้</span>`;
+            console.error('IP Fetch Error:', error);
+        });
+}
+
 
 // ฟังก์ชันหลักในการขอตำแหน่งปัจจุบัน
 function getUserLocation() {
@@ -176,7 +181,10 @@ function getUserLocation() {
         locationElement.innerHTML = '';
         resultsElement.innerHTML = '<p>รอการระบุตำแหน่งเพื่อเริ่มดึงข้อมูลและคำนวณระยะทาง...</p>';
 
-        // **ตั้งค่า Timeout เป็น 20 วินาที**
+        // 1. เรียกดึง IP Address
+        fetchIpAddress(); 
+
+        // 2. เรียก Geolocation (ตั้งค่า Timeout 20 วินาที)
         navigator.geolocation.getCurrentPosition(showPosition, showError, {
             enableHighAccuracy: true,
             timeout: 20000, 
@@ -195,14 +203,11 @@ function showPosition(position) {
     statusElement.className = 'status';
     statusElement.textContent = '✅ ระบุตำแหน่งสำเร็จ';
 
-    // 1. เรียก Reverse Geocoding เพื่อแสดงที่อยู่ภาษาไทย
     reverseGeocode(userLat, userLon);
-    
-    // 2. เรียกดึงข้อมูลแผ่นดินไหวและคำนวณระยะทาง
     fetchEarthquakeData();
 }
 
-// ฟังก์ชันสำหรับ Reverse Geocoding
+// ฟังก์ชันสำหรับ Reverse Geocoding (แสดงเลขที่บ้าน/ถนน)
 function reverseGeocode(lat, lon) {
     const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&addressdetails=1&accept-language=th`;
 
@@ -223,6 +228,11 @@ function reverseGeocode(lat, lon) {
             const district = address.city || address.town || address.county || address.suburb || 'ไม่ระบุ';
             const subDistrict = address.suburb || address.quarter || address.village || address.road || 'ไม่ระบุ';
             
+            // ************ ส่วนที่ถูกแก้ไข/เพิ่ม: บ้านเลขที่และถนน ************
+            const houseNumber = address.house_number || address.building || 'ไม่ระบุ';
+            const road = address.road || 'ไม่ระบุ';
+            // ***************************************************************
+            
             const countryCode = address.country_code ? ` (${address.country_code.toUpperCase()})` : '';
 
             const thaiAddress = `
@@ -231,7 +241,11 @@ function reverseGeocode(lat, lon) {
                     <p><strong>ประเทศ:</strong> ${country}${countryCode}</p>
                     <p><strong>จังหวัด:</strong> ${province}</p>
                     <p><strong>อำเภอ/เขต:</strong> ${district}</p>
-                    <p><strong>ตำบล/แขวง/ถนน:</strong> ${subDistrict}</p>
+                    <p><strong>ตำบล/แขวง:</strong> ${subDistrict}</p>
+                    <p><strong>ถนน:</strong> ${road}</p>
+                    <p><strong>เลขที่/อาคาร:</strong> ${houseNumber}</p> 
+                    <hr>
+                    <p><strong>พิกัดดิบ (Lat/Lon):</strong> ${lat.toFixed(6)}, ${lon.toFixed(6)}</p>
                 </div>
             `;
             
