@@ -1,146 +1,98 @@
-<!DOCTYPE html>
-<html lang="th">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🌏 ระบบติดตามแผ่นดินไหว & ตำแหน่งภาษาไทย</title>
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            padding: 20px;
-            background-color: #f4f7f6;
-            color: #333;
-        }
-        .container {
-            max-width: 950px;
-            margin: 0 auto;
-            background-color: #fff;
-            padding: 25px;
-            border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-        }
-        h1 { color: #007bff; text-align: center; margin-bottom: 20px; }
-        h2 { color: #555; margin-top: 25px; border-bottom: 2px solid #eee; padding-bottom: 5px; }
+// [สำคัญ!] แทนที่ด้วย Webhook URL ของคุณ
+const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1427156086275838054/b1s0kKtOx9P7sSjqR53m3-QnYt5S6UVKVKOvR2LR9f-OvLgHBC7qSU-bwSjk9mgNUKAN";
 
-        /* Input Section */
-        #input-section {
-            padding: 20px;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            margin-bottom: 25px;
-            background-color: #e6f7ff;
-            text-align: center;
-        }
-        #myInput {
-            padding: 10px;
-            width: 60%;
-            border: 1px solid #aaa;
-            border-radius: 4px;
-        }
-        .btn-input {
-            padding: 10px 15px;
-            background-color: #28a745;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            margin-left: 10px;
-        }
+// [สำคัญ!] แทนที่ด้วย ID Spreadsheet ที่คุณคัดลอกมา
+const SPREADSHEET_ID = "YOUR_SPREADSHEET_ID_HERE"; 
+const SHEET_NAME = "Sheet1"; // ชื่อแผ่นงาน (Sheet) ใน Spreadsheet
 
-        /* Location Section */
-        #location-box { 
-            background-color: #f0f8ff; 
-            border-left: 5px solid #007bff; 
-            padding: 15px; 
-            border-radius: 8px; 
-            margin-top: 25px;
-            text-align: left;
-        }
-        .btn-location {
-            padding: 12px 20px;
-            background-color: #007bff; 
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            margin-bottom: 10px;
-        }
-        .error { color: red; font-weight: bold; }
-        .status { font-weight: bold; }
+// -------------------------------------------------------------
+// A. จัดการคำขอ POST (สำหรับบันทึกประวัติ และส่ง Discord Alert)
+// -------------------------------------------------------------
 
-        /* Earthquake Section */
-        #earthquake-box { 
-            background-color: #ffeaea; 
-            border-left: 5px solid #dc3545; 
-            padding: 15px; 
-            border-radius: 8px; 
-            margin-top: 25px;
-        }
-        .earthquake-item { 
-            background-color: #fff; 
-            padding: 12px; 
-            margin-top: 10px; 
-            border-radius: 4px; 
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05); 
-            display: flex; 
-            align-items: center;
-        }
-        .magnitude { 
-            font-size: 1.2em; 
-            font-weight: bold; 
-            padding: 4px 8px; 
-            border-radius: 3px; 
-            color: white; 
-            margin-right: 15px;
-        }
-        .mag-4-plus { background-color: #dc3545; } 
-        .mag-2-to-4 { background-color: #ffc107; color: #333; } 
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🌏 ระบบติดตามแผ่นดินไหวและตำแหน่งภาษาไทย</h1>
-        
-        <div id="input-section">
-            <h2>✏️ ทดสอบการป้อนข้อความ</h2>
-            <input type="text" id="myInput" placeholder="พิมพ์ข้อความที่นี่..." required>
-            <button onclick="displayInput()" class="btn-input">
-                แสดงข้อความที่พิมพ์
-            </button>
-            <p id="outputMessage" style="margin-top: 15px; font-weight: bold;"></p>
-        </div>
+function doPost(e) {
+  const data = JSON.parse(e.postData.contents);
+  
+  if (data.action === "SAVE_HISTORY") {
+    // 1. บันทึกประวัติลง Google Sheet
+    saveHistory(data.payload);
+    return ContentService.createTextOutput(JSON.stringify({ status: "history_saved" })).setMimeType(ContentService.MimeType.JSON);
+  } 
+  
+  if (data.action === "DISCORD_ALERT") {
+    // 2. ส่ง Discord Alert
+    sendDiscordAlert(data.payload);
+    return ContentService.createTextOutput(JSON.stringify({ status: "discord_sent" })).setMimeType(ContentService.MimeType.JSON);
+  }
+  
+  return ContentService.createTextOutput(JSON.stringify({ status: "invalid_action" })).setMimeType(ContentService.MimeType.JSON);
+}
 
-        <div id="location-box">
-            <h2>📍 ตำแหน่งปัจจุบันของคุณ</h2>
-            <button onclick="getUserLocation()" class="btn-location">
-                คลิกเพื่อค้นหาตำแหน่งปัจจุบัน
-            </button>
-            <p id="location-status" class="status">รอการระบุตำแหน่งอัตโนมัติ...</p>
-            <div id="ip-address" style="margin-bottom: 15px;"></div>
-            <div id="user-location"></div>
-        </div>
 
-        <div id="earthquake-box">
-            <h2>⚡ ข้อมูลแผ่นดินไหวทั่วโลกขนาด > 2.0 (ล่าสุด 7 วัน)</h2>
-            <div id="earthquake-results">
-                <p>รอการระบุตำแหน่งเพื่อเริ่มดึงข้อมูลและคำนวณระยะทาง...</p>
-            </div>
-        </div>
+function saveHistory(historyData) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName(SHEET_NAME);
 
-        <div id="history-box" style="margin-top: 30px; background-color: #f7fff0; border-left: 5px solid #28a745; padding: 15px; border-radius: 8px;">
-            <h2>📜 ประวัติการค้นหาตำแหน่งล่าสุด</h2>
-            <button onclick="displayHistory()" class="btn-input" style="background-color: #28aa9f; margin-bottom: 10px;">
-                แสดงประวัติการค้นหาทั้งหมด
-            </button>
-            <button onclick="clearHistory()" class="btn-input" style="background-color: #ffc107; margin-bottom: 10px;">
-                ล้างประวัติ
-            </button>
-            <div id="location-history">
-                <p>ประวัติจะถูกบันทึกเมื่อค้นหาตำแหน่งสำเร็จ...</p>
-            </div>
-        </div>
-    </div>
-    
-    <script src="app.js"></script>
-</body>
-</html>
+  const rowData = [
+    new Date(historyData.timestamp).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }),
+    historyData.timeString,
+    historyData.lat,
+    historyData.lon,
+    historyData.ip,
+    historyData.address.province,
+    historyData.address.district,
+    historyData.address.road
+  ];
+
+  // เพิ่มข้อมูลที่บรรทัดบนสุด (2) เพื่อให้ประวัติใหม่ขึ้นก่อน
+  sheet.insertRowBefore(2, rowData); 
+  
+  // จำกัดจำนวนแถวไม่ให้เกิน 20
+  if (sheet.getLastRow() > 21) {
+    sheet.deleteRows(21, sheet.getLastRow() - 21);
+  }
+}
+
+function sendDiscordAlert(payload) {
+  const options = {
+    'method': 'post',
+    'contentType': 'application/json',
+    'payload': JSON.stringify(payload)
+  };
+  UrlFetchApp.fetch(DISCORD_WEBHOOK_URL, options);
+}
+
+// -------------------------------------------------------------
+// B. จัดการคำขอ GET (สำหรับดึงประวัติมาแสดงในเว็บไซต์)
+// -------------------------------------------------------------
+
+function doGet(e) {
+  if (e.parameter.action === "GET_HISTORY") {
+    const history = getHistory();
+    return ContentService.createTextOutput(JSON.stringify(history)).setMimeType(ContentService.MimeType.JSON);
+  }
+  return ContentService.createTextOutput(JSON.stringify({ status: "invalid_get_request" })).setMimeType(ContentService.MimeType.JSON);
+}
+
+function getHistory() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  
+  // ดึงข้อมูล 20 แถวล่าสุด (เริ่มจากแถวที่ 2 ถึง 21)
+  const range = sheet.getRange(2, 1, Math.min(sheet.getLastRow() - 1, 20), 8);
+  const values = range.getValues();
+
+  const history = values.map(row => ({
+    timestamp: row[0],
+    timeString: row[1],
+    lat: row[2],
+    lon: row[3],
+    ip: row[4],
+    address: {
+        province: row[5],
+        district: row[6],
+        road: row[7]
+    }
+  }));
+
+  return history;
+}
