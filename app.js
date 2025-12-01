@@ -1,13 +1,23 @@
 let userLat = null;
 let userLon = null;
+let userIp = 'ไม่ทราบ IP'; 
+let userAddress = {}; 
 let earthquakeFeatures = []; 
+
 const CACHE_KEY = 'earthquakeDataCache';
-const CACHE_DURATION_MS = 3600000; // 1 ชั่วโมง
+const HISTORY_KEY = 'locationHistoryCache'; 
+const CACHE_DURATION_MS = 3600000; 
+
+// >>>>> [สำคัญ!] แทนที่ URL นี้ด้วย URL Web App ที่คุณได้จาก Google Apps Script <<<<<
+const DISCORD_PROXY_URL = "YOUR_GOOGLE_APPS_SCRIPT_URL"; 
+const MIN_MAGNITUDE_FOR_ALERT = 4.5; // แจ้งเตือน Discord เมื่อขนาด >= 4.5
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 const locationElement = document.getElementById('user-location');
 const statusElement = document.getElementById('location-status');
 const resultsElement = document.getElementById('earthquake-results');
 const ipElement = document.getElementById('ip-address');
+const historyElement = document.getElementById('location-history'); 
 
 
 // **********************************************
@@ -28,12 +38,101 @@ function displayInput() {
     document.getElementById('myInput').value = ''; 
 }
 
+
 // **********************************************
-// ส่วนที่ 2: การคำนวณและดึงข้อมูลแผ่นดินไหว
+// ส่วนที่ 2: การจัดการประวัติการค้นหา (History Logic)
+// **********************************************
+
+function saveLocationToHistory() {
+    if (userLat === null || userLon === null || userAddress.province === undefined) {
+        return; 
+    }
+
+    const historyEntry = {
+        timestamp: Date.now(),
+        timeString: new Date().toLocaleString('th-TH', { 
+            year: 'numeric', 
+            month: 'short', 
+            day: 'numeric', 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            second: '2-digit' 
+        }),
+        lat: userLat.toFixed(6),
+        lon: userLon.toFixed(6),
+        ip: userIp,
+        address: userAddress 
+    };
+
+    let history = [];
+    try {
+        const cachedHistory = localStorage.getItem(HISTORY_KEY);
+        if (cachedHistory) {
+            history = JSON.parse(cachedHistory);
+        }
+    } catch (e) {
+        console.error("Failed to parse history cache:", e);
+    }
+    
+    history.unshift(historyEntry); 
+    if (history.length > 20) {
+        history.pop(); 
+    }
+    
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    displayHistory(); 
+}
+
+function displayHistory() {
+    let history = [];
+    try {
+        const cachedHistory = localStorage.getItem(HISTORY_KEY);
+        if (cachedHistory) {
+            history = JSON.parse(cachedHistory);
+        }
+    } catch (e) {
+        historyElement.innerHTML = '<p class="error">❌ ข้อผิดพลาดในการโหลดประวัติ</p>';
+        return;
+    }
+
+    if (history.length === 0) {
+        historyElement.innerHTML = '<p>ยังไม่มีประวัติการค้นหาตำแหน่งที่ถูกบันทึกไว้</p>';
+        return;
+    }
+
+    let historyHTML = '<ul style="list-style-type: none; padding-left: 0;">';
+    history.forEach((item, index) => {
+        const mainAddress = item.address.province !== 'ไม่ระบุ' 
+                            ? `${item.address.province}, ${item.address.district}`
+                            : item.address.road;
+
+        historyHTML += `
+            <li style="border-bottom: 1px dashed #ccc; padding: 8px 0;">
+                <strong style="color: #007bff;">#${index + 1}</strong> 
+                <strong>เวลา:</strong> ${item.timeString}<br>
+                <strong>พิกัด:</strong> ${item.lat}, ${item.lon}<br>
+                <strong>ที่อยู่หลัก:</strong> ${mainAddress}<br>
+                <strong>IP:</strong> ${item.ip}
+            </li>
+        `;
+    });
+    historyHTML += '</ul>';
+    historyElement.innerHTML = historyHTML;
+}
+
+function clearHistory() {
+    localStorage.removeItem(HISTORY_KEY);
+    displayHistory();
+    alert('ล้างประวัติการค้นหาทั้งหมดเรียบร้อยแล้ว');
+}
+
+
+// **********************************************
+// ส่วนที่ 3: การคำนวณและดึงข้อมูลแผ่นดินไหว
 // **********************************************
 
 function calculateDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371; // รัศมีโลกโดยเฉลี่ยในหน่วยกิโลเมตร
+    const R = 6371; 
     const dLat = (lat2 - lat1) * (Math.PI / 180);
     const dLon = (lon2 - lon1) * (Math.PI / 180);
 
@@ -96,6 +195,41 @@ function fetchEarthquakeData() {
         });
 }
 
+// ฟังก์ชันส่งแจ้งเตือนไปยัง Discord ผ่าน Webhook Proxy
+function notifyDiscord(feature) {
+    if (DISCORD_PROXY_URL === "YOUR_GOOGLE_APPS_SCRIPT_URL") return; 
+
+    const props = feature.properties;
+    const coords = feature.geometry.coordinates;
+    const distanceText = feature.distance !== undefined ? `${feature.distance.toLocaleString('th-TH', { maximumFractionDigits: 0 })} กม.` : 'ไม่ระบุ';
+    
+    let color = 16777215; 
+    if (props.mag >= 6.0) color = 16711680; 
+    else if (props.mag >= 5.0) color = 16744448; 
+    else if (props.mag >= 4.0) color = 16776960; 
+
+    const payload = {
+        title: `🚨 แผ่นดินไหวขนาด ${props.mag.toFixed(1)} ใกล้ ${props.place}`,
+        embedTitle: `Magnitude ${props.mag.toFixed(1)}: ${props.place}`,
+        description: `เกิดขึ้นเมื่อ: ${new Date(props.time).toLocaleString('th-TH', { hour12: false, year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+        color: color,
+        distance: distanceText,
+        coords: `Lat: ${coords[1].toFixed(2)}, Lon: ${coords[0].toFixed(2)}`,
+        source: props.url || 'USGS'
+    };
+
+    fetch(DISCORD_PROXY_URL, {
+        method: 'POST',
+        mode: 'no-cors', 
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+    }).catch(error => {
+        console.error('Error sending Discord notification:', error);
+    });
+}
+
 
 function updateEarthquakeResults() {
     resultsElement.innerHTML = ''; 
@@ -120,6 +254,11 @@ function updateEarthquakeResults() {
 
     earthquakeFeatures.slice(0, 50).forEach((feature, index) => {
         const props = feature.properties;
+        
+        // ตรวจสอบขนาดเพื่อแจ้งเตือน Discord
+        if (props.mag >= MIN_MAGNITUDE_FOR_ALERT) {
+            notifyDiscord(feature);
+        }
         
         let magnitudeClass = (props.mag >= 4.0) ? 'mag-4-plus' : 'mag-2-to-4';
 
@@ -156,7 +295,7 @@ function updateEarthquakeResults() {
 
 
 // **********************************************
-// ส่วนที่ 3: Geolocation, IP และ Reverse Geocoding
+// ส่วนที่ 4: Geolocation, IP และ Reverse Geocoding
 // **********************************************
 
 // ฟังก์ชันดึง IP Address
@@ -165,9 +304,11 @@ function fetchIpAddress() {
     fetch('https://api.ipify.org?format=json')
         .then(response => response.json())
         .then(data => {
-            ipElement.innerHTML = `🌐 **IP Address ของคุณ:** <span style="font-weight: bold; color: #007bff;">${data.ip}</span>`;
+            userIp = data.ip; 
+            ipElement.innerHTML = `🌐 **IP Address ของคุณ:** <span style="font-weight: bold; color: #007bff;">${userIp}</span>`;
         })
         .catch(error => {
+            userIp = 'ไม่สามารถดึง IP'; 
             ipElement.innerHTML = `<span class="error">❌ ไม่สามารถดึง IP Address ได้</span>`;
             console.error('IP Fetch Error:', error);
         });
@@ -181,10 +322,8 @@ function getUserLocation() {
         locationElement.innerHTML = '';
         resultsElement.innerHTML = '<p>รอการระบุตำแหน่งเพื่อเริ่มดึงข้อมูลและคำนวณระยะทาง...</p>';
 
-        // 1. เรียกดึง IP Address
         fetchIpAddress(); 
 
-        // 2. เรียก Geolocation (ตั้งค่า Timeout 20 วินาที)
         navigator.geolocation.getCurrentPosition(showPosition, showError, {
             enableHighAccuracy: true,
             timeout: 20000, 
@@ -223,34 +362,35 @@ function reverseGeocode(lat, lon) {
         const address = data.address;
         
         if (address) {
-            const country = address.country || 'ไม่ระบุ';
-            const province = address.state || address.province || 'ไม่ระบุ'; 
-            const district = address.city || address.town || address.county || address.suburb || 'ไม่ระบุ';
-            const subDistrict = address.suburb || address.quarter || address.village || address.road || 'ไม่ระบุ';
-            
-            // ************ ส่วนที่ถูกแก้ไข/เพิ่ม: บ้านเลขที่และถนน ************
-            const houseNumber = address.house_number || address.building || 'ไม่ระบุ';
-            const road = address.road || 'ไม่ระบุ';
-            // ***************************************************************
+            userAddress = {
+                country: address.country || 'ไม่ระบุ',
+                province: address.state || address.province || 'ไม่ระบุ', 
+                district: address.city || address.town || address.county || address.suburb || 'ไม่ระบุ',
+                subDistrict: address.suburb || address.quarter || address.village || address.road || 'ไม่ระบุ',
+                houseNumber: address.house_number || address.building || 'ไม่ระบุ',
+                road: address.road || 'ไม่ระบุ'
+            };
             
             const countryCode = address.country_code ? ` (${address.country_code.toUpperCase()})` : '';
 
             const thaiAddress = `
                 <div style="border: 1px dashed #ccc; padding: 10px; margin-top: 10px;">
                     <h2>✅ ที่อยู่ภาษาไทยโดยละเอียด:</h2>
-                    <p><strong>ประเทศ:</strong> ${country}${countryCode}</p>
-                    <p><strong>จังหวัด:</strong> ${province}</p>
-                    <p><strong>อำเภอ/เขต:</strong> ${district}</p>
-                    <p><strong>ตำบล/แขวง:</strong> ${subDistrict}</p>
-                    <p><strong>ถนน:</strong> ${road}</p>
-                    <p><strong>เลขที่/อาคาร:</strong> ${houseNumber}</p> 
+                    <p><strong>ประเทศ:</strong> ${userAddress.country}${countryCode}</p>
+                    <p><strong>จังหวัด:</strong> ${userAddress.province}</p>
+                    <p><strong>อำเภอ/เขต:</strong> ${userAddress.district}</p>
+                    <p><strong>ตำบล/แขวง:</strong> ${userAddress.subDistrict}</p>
+                    <p><strong>ถนน:</strong> ${userAddress.road}</p>
+                    <p><strong>เลขที่/อาคาร:</strong> ${userAddress.houseNumber}</p> 
                     <hr>
                     <p><strong>พิกัดดิบ (Lat/Lon):</strong> ${lat.toFixed(6)}, ${lon.toFixed(6)}</p>
                 </div>
             `;
             
             locationElement.innerHTML = thaiAddress;
+            saveLocationToHistory(); 
         } else {
+            userAddress = {}; 
             locationElement.innerHTML = `**พิกัดปัจจุบัน:** ละติจูด ${lat.toFixed(6)}, ลองจิจูด ${lon.toFixed(6)}<br><span class="error">ไม่พบข้อมูลที่อยู่โดยละเอียดสำหรับพิกัดนี้</span>`;
         }
     })
@@ -281,3 +421,6 @@ function showError(error) {
     locationElement.innerHTML = '';
     resultsElement.innerHTML = '<p class="error">การระบุตำแหน่งล้มเหลว จึงไม่สามารถดึงข้อมูลแผ่นดินไหวและคำนวณระยะทางได้</p>';
 }
+
+// เรียกแสดงประวัติเมื่อหน้าเว็บโหลด
+document.addEventListener('DOMContentLoaded', displayHistory);
