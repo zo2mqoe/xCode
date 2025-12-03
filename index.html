@@ -1,98 +1,120 @@
-// [สำคัญ!] แทนที่ด้วย Webhook URL ของคุณ
-const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1427156086275838054/b1s0kKtOx9P7sSjqR53m3-QnYt5S6UVKVKOvR2LR9f-OvLgHBC7qSU-bwSjk9mgNUKAN";
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Customer Ordering</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background-color: #f4f4f9; }
+        .menu-item { border: 1px solid #ddd; margin-bottom: 15px; padding: 15px; background-color: white; border-radius: 8px; }
+        .menu-item h3 { margin-top: 0; color: #333; }
+        .cart-item { margin-top: 5px; background-color: #e9e9e9; padding: 8px; border-radius: 4px; }
+        #menuList { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        button { padding: 8px 15px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        #cart { margin-top: 20px; padding: 15px; border: 2px solid #007bff; border-radius: 8px; background-color: #fff; }
+    </style>
+</head>
+<body>
+    <h1>สั่งอาหาร (โต๊ะ: <input type="text" id="tableNumber" value="A1" style="width: 50px;">)</h1>
+    <div id="menuList"></div>
 
-// [สำคัญ!] แทนที่ด้วย ID Spreadsheet ที่คุณคัดลอกมา
-const SPREADSHEET_ID = "YOUR_SPREADSHEET_ID_HERE"; 
-const SHEET_NAME = "Sheet1"; // ชื่อแผ่นงาน (Sheet) ใน Spreadsheet
+    <h2>ตะกร้าสินค้า 🛒</h2>
+    <div id="cart"></div>
+    <button onclick="submitOrder()">✅ ยืนยันการสั่งซื้อ</button>
+    <p id="message" style="margin-top: 15px; font-weight: bold;"></p>
 
-// -------------------------------------------------------------
-// A. จัดการคำขอ POST (สำหรับบันทึกประวัติ และส่ง Discord Alert)
-// -------------------------------------------------------------
+    <script>
+        // ไม่ได้ใช้ socket ในหน้านี้ แต่ใส่ไว้เผื่อการพัฒนาฟีเจอร์ติดตามสถานะ
+        const socket = io('http://localhost:3000'); 
+        let cart = {}; 
 
-function doPost(e) {
-  const data = JSON.parse(e.postData.contents);
-  
-  if (data.action === "SAVE_HISTORY") {
-    // 1. บันทึกประวัติลง Google Sheet
-    saveHistory(data.payload);
-    return ContentService.createTextOutput(JSON.stringify({ status: "history_saved" })).setMimeType(ContentService.MimeType.JSON);
-  } 
-  
-  if (data.action === "DISCORD_ALERT") {
-    // 2. ส่ง Discord Alert
-    sendDiscordAlert(data.payload);
-    return ContentService.createTextOutput(JSON.stringify({ status: "discord_sent" })).setMimeType(ContentService.MimeType.JSON);
-  }
-  
-  return ContentService.createTextOutput(JSON.stringify({ status: "invalid_action" })).setMimeType(ContentService.MimeType.JSON);
-}
+        async function fetchMenu() {
+            const response = await fetch('/api/menu');
+            const data = await response.json();
+            const menuList = document.getElementById('menuList');
+            
+            data.data.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'menu-item';
+                div.innerHTML = `
+                    <h3>${item.name} (${item.price} บาท)</h3>
+                    <p>${item.description || 'ไม่มีคำอธิบาย'}</p>
+                    <input type="text" id="notes-${item.item_id}" placeholder="เพิ่มหมายเหตุ (เผ็ดน้อย, ไม่ใส่ผักชี)">
+                    <button onclick="addToCart(${item.item_id}, '${item.name.replace(/'/g, "\\'")}', ${item.price})">เพิ่มลงตะกร้า</button>
+                `;
+                menuList.appendChild(div);
+            });
+        }
 
+        function addToCart(id, name, price) {
+            if (!cart[id]) {
+                cart[id] = { item_id: id, name, price, quantity: 0 };
+            }
+            cart[id].quantity++;
+            // ดึง notes ล่าสุดทุกครั้งที่เพิ่ม
+            cart[id].notes = document.getElementById(`notes-${id}`).value; 
+            renderCart();
+        }
 
-function saveHistory(historyData) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = ss.getSheetByName(SHEET_NAME);
+        function renderCart() {
+            const cartDiv = document.getElementById('cart');
+            cartDiv.innerHTML = '';
+            let total = 0;
+            
+            const cartItems = Object.values(cart).filter(item => item.quantity > 0);
 
-  const rowData = [
-    new Date(historyData.timestamp).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }),
-    historyData.timeString,
-    historyData.lat,
-    historyData.lon,
-    historyData.ip,
-    historyData.address.province,
-    historyData.address.district,
-    historyData.address.road
-  ];
+            if (cartItems.length === 0) {
+                cartDiv.innerHTML = '<p>ตะกร้าว่างเปล่า</p>';
+                return;
+            }
 
-  // เพิ่มข้อมูลที่บรรทัดบนสุด (2) เพื่อให้ประวัติใหม่ขึ้นก่อน
-  sheet.insertRowBefore(2, rowData); 
-  
-  // จำกัดจำนวนแถวไม่ให้เกิน 20
-  if (sheet.getLastRow() > 21) {
-    sheet.deleteRows(21, sheet.getLastRow() - 21);
-  }
-}
+            cartItems.forEach(item => {
+                const itemTotal = item.quantity * item.price;
+                total += itemTotal;
+                const p = document.createElement('p');
+                p.className = 'cart-item';
+                p.innerHTML = `${item.name} x ${item.quantity} = ${itemTotal} บาท. 
+                               ${item.notes ? `<br>(${item.notes})` : ''}`;
+                cartDiv.appendChild(p);
+            });
+            cartDiv.innerHTML += `<h3>💰 ราคารวม: ${total.toFixed(2)} บาท</h3>`;
+        }
+        
+        async function submitOrder() {
+            const table_number = document.getElementById('tableNumber').value;
+            const items = Object.values(cart)
+                .filter(item => item.quantity > 0)
+                .map(item => ({ 
+                    item_id: item.item_id, 
+                    quantity: item.quantity, 
+                    notes: item.notes 
+                }));
 
-function sendDiscordAlert(payload) {
-  const options = {
-    'method': 'post',
-    'contentType': 'application/json',
-    'payload': JSON.stringify(payload)
-  };
-  UrlFetchApp.fetch(DISCORD_WEBHOOK_URL, options);
-}
+            if (!table_number || items.length === 0) {
+                document.getElementById('message').innerText = '❌ โปรดระบุหมายเลขโต๊ะและเลือกรายการอาหาร';
+                return;
+            }
 
-// -------------------------------------------------------------
-// B. จัดการคำขอ GET (สำหรับดึงประวัติมาแสดงในเว็บไซต์)
-// -------------------------------------------------------------
+            document.getElementById('message').innerText = '...กำลังส่งคำสั่งซื้อ...';
 
-function doGet(e) {
-  if (e.parameter.action === "GET_HISTORY") {
-    const history = getHistory();
-    return ContentService.createTextOutput(JSON.stringify(history)).setMimeType(ContentService.MimeType.JSON);
-  }
-  return ContentService.createTextOutput(JSON.stringify({ status: "invalid_get_request" })).setMimeType(ContentService.MimeType.JSON);
-}
+            const response = await fetch('/api/order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ table_number, items })
+            });
 
-function getHistory() {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = ss.getSheetByName(SHEET_NAME);
-  
-  // ดึงข้อมูล 20 แถวล่าสุด (เริ่มจากแถวที่ 2 ถึง 21)
-  const range = sheet.getRange(2, 1, Math.min(sheet.getLastRow() - 1, 20), 8);
-  const values = range.getValues();
+            const result = await response.json();
+            
+            if (result.success) {
+                document.getElementById('message').innerText = `✅ สั่งซื้อสำเร็จ! Order ID: ${result.order_id}, รวม ${result.total_amount} บาท`;
+                cart = {};
+                renderCart();
+            } else {
+                document.getElementById('message').innerText = `❌ ข้อผิดพลาด: ${result.message}`;
+            }
+        }
 
-  const history = values.map(row => ({
-    timestamp: row[0],
-    timeString: row[1],
-    lat: row[2],
-    lon: row[3],
-    ip: row[4],
-    address: {
-        province: row[5],
-        district: row[6],
-        road: row[7]
-    }
-  }));
-
-  return history;
-}
+        fetchMenu();
+    </script>
+</body>
+</html>
