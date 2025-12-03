@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Kitchen Display System (KDS)</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background-color: #2c3e50; color: white; }
+        h1 { color: #ecf0f1; }
+        #ordersContainer { display: flex; flex-wrap: wrap; gap: 20px; }
+        .order-card { 
+            border-radius: 8px; padding: 15px; width: 320px; box-shadow: 0 4px 8px rgba(0,0,0,0.5); 
+            transition: transform 0.3s, opacity 0.5s;
+        }
+        .order-card h3 { margin-top: 0; }
+        .pending { border: 3px solid #f39c12; background-color: #3e4c5e; }
+        .in_progress { border: 3px solid #3498db; background-color: #3e4c5e; }
+        .done { 
+            border: 3px solid #2ecc71; 
+            background-color: #1a242f; 
+            opacity: 0.5; /* ทำให้จางลงเมื่อเสร็จแล้ว */
+        }
+        .order-card button { margin-right: 5px; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; color: white; }
+        .order-card button:nth-child(1) { background-color: #e67e22; } /* IN_PROGRESS */
+        .order-card button:nth-child(2) { background-color: #27ae60; } /* DONE */
+    </style>
+</head>
+<body>
+    <h1>หน้าจอครัว (KDS) - คำสั่งซื้อ</h1>
+    <div id="ordersContainer">
+        </div>
+
+    <script>
+        const socket = io('http://localhost:3000');
+        const ordersContainer = document.getElementById('ordersContainer');
+
+        async function updateStatus(orderId, newStatus) {
+            const response = await fetch('/api/order/status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ order_id: orderId, status: newStatus })
+            });
+            const result = await response.json();
+            if (!result.success) {
+                alert(`อัปเดตสถานะไม่สำเร็จ: ${result.message}`);
+            }
+        }
+        
+        function renderOrderCard(order) {
+            const cardId = `order-${order.order_id}`;
+            let card = document.getElementById(cardId);
+            if (!card) {
+                card = document.createElement('div');
+                card.id = cardId;
+                ordersContainer.prepend(card); 
+            }
+            
+            card.className = `order-card ${order.status.toLowerCase()}`;
+            
+            let itemsHtml = order.items.map(item => 
+                `<li>${item.item_name} x ${item.quantity} 
+                 ${item.notes ? `(${item.notes})` : ''}</li>`
+            ).join('');
+
+            card.innerHTML = `
+                <h3>โต๊ะ: ${order.table_number}</h3>
+                <p style="font-size: small;">Order ID: ${order.order_id} | Time: ${order.order_time || 'N/A'}</p>
+                <p>สถานะ: <strong>${order.status}</strong></p>
+                <ul>${itemsHtml}</ul>
+                <button onclick="updateStatus(${order.order_id}, 'IN_PROGRESS')">🍴 กำลังทำ</button>
+                <button onclick="updateStatus(${order.order_id}, 'DONE')">✅ เสร็จแล้ว</button>
+            `;
+        }
+
+        // 1. รับคำสั่งซื้อใหม่จาก Socket.io
+        socket.on('new_order', (order) => {
+            console.log('New Order Received:', order);
+            renderOrderCard(order); 
+        });
+
+        // 2. รับการอัปเดตสถานะจาก Socket.io
+        socket.on('order_status_update', ({ order_id, status }) => {
+            const card = document.getElementById(`order-${order_id}`);
+            if (card) {
+                // อัปเดตสถานะและสี Card ทันที
+                card.className = `order-card ${status.toLowerCase()}`;
+                card.querySelector('strong').innerText = status;
+
+                if (status === 'DONE') {
+                    // ลบ Card ออกจากหน้าจอหลังจาก 5 วินาที
+                    setTimeout(() => {
+                        const doneCard = document.getElementById(`order-${order_id}`);
+                        if (doneCard) doneCard.style.display = 'none';
+                    }, 5000); 
+                }
+            }
+        });
+        
+        // **(Optional)** ดึงออเดอร์ค้างทั้งหมดเมื่อเปิดหน้านี้ (คุณสามารถเพิ่ม API สำหรับดึงออเดอร์สถานะ PENDING/IN_PROGRESS ได้เอง)
+        // fetchPendingOrders(); 
+    </script>
+</body>
+</html>
