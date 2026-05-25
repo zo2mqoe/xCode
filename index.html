@@ -36,7 +36,7 @@
         }
     </style>
 </head>
-<body class="bg-[#fff0f6] bg-cover bg-center bg-no-repeat text-gray-700 min-h-screen flex flex-col justify-between selection:bg-pink-200 selection:text-pink-800 relative overflow-x-hidden transition-[background-image] duration-1000">
+<body style="background-image: url('https://i.postimg.cc/ZnNRV6QM/cc29c1ead492ca4fab7efc6ccfffee66.jpg');" class="bg-[#fff0f6] bg-cover bg-center bg-no-repeat text-gray-700 min-h-screen flex flex-col justify-between selection:bg-pink-200 selection:text-pink-800 relative overflow-x-hidden">
 
     <audio id="bgMusic" src="Hurry up feat.7Vibes.mp3" loop></audio>
 
@@ -222,21 +222,6 @@
                         <i class="fa-brands fa-tiktok text-xs"></i>
                     </a>
                 </div>
-
-                <div class="member-card flex items-center justify-between p-3.5 bg-[#fdf8fa] hover:bg-pink-50/50 border border-pink-100 rounded-lg transition-all duration-150" data-category="winterfell" data-discord-id="1455946258580504707">
-                    <div class="flex items-center gap-3.5">
-                        <div class="avatar-wrapper w-11 h-11 rounded-full bg-pink-100 border border-pink-200 flex-shrink-0 flex items-center justify-center overflow-hidden relative">
-                            <img class="user-avatar w-full h-full object-cover" src="https://i.postimg.cc/c1hz2BLP/KHIT-KON.png" alt="Arthur">
-                        </div>
-                        <div>
-                            <h3 class="name-field text-sm font-medium text-gray-800">Icas KK</h3>
-                            <p class="text-xs text-gray-400 mt-0.5">tiktok.com/@lucxssss_4</p>
-                        </div>
-                    </div>
-                    <a href="https://www.tiktok.com/@lucxssss_4" target="_blank" class="w-8 h-8 rounded-full bg-white border border-pink-100 text-pink-400 hover:bg-black hover:text-white flex items-center justify-center transition-colors shadow-sm relative z-30 flex-shrink-0">
-                        <i class="fa-brands fa-tiktok text-xs"></i>
-                    </a>
-                </div>
                 
                 <div class="member-card flex items-center justify-between p-3.5 bg-[#fdf8fa] hover:bg-pink-50/50 border border-pink-100 rounded-lg transition-all duration-150" data-category="unfair" data-discord-id="1238721926965493830">
                     <div class="flex items-center gap-3.5">
@@ -294,8 +279,7 @@
     <script>
         let isMusicPlaying = false;
         
-        // ================= ระบบเปลี่ยนรูปพื้นหลังอัตโนมัติทุกๆ 5 วินาที =================
-        // เปลี่ยน 'ลิงก์รูปที่_x.jpg' ด้านล่างนี้ให้เป็น URL รูปภาพจริงของคุณนะครับ
+        // ================= ระบบเปลี่ยนรูปพื้นหลังอัตโนมัติทุกๆ 5 วินาที (ใส่ลิงก์จริงและเปลี่ยนทันที) =================
         const backgroundImages = [
             'https://i.postimg.cc/ZnNRV6QM/cc29c1ead492ca4fab7efc6ccfffee66.jpg',
             'https://i.postimg.cc/PJDx2179/a75f58c361ec69fe013849afba5cd295.jpg',
@@ -307,13 +291,23 @@
 
         let currentImgIndex = 0;
 
+        // ดึงภาพทั้งหมดมาเก็บไว้ใน Cache ล่วงหน้าตั้งแต่วินาทีแรกที่เปิดเว็บ ป้องกันการหน่วงหรือกระพริบขาว
+        function preloadBackgroundImages() {
+            if (backgroundImages.length === 0) return;
+            backgroundImages.forEach(url => {
+                const img = new Image();
+                img.src = url;
+            });
+        }
+
         function changeBackground() {
-            if (backgroundImages.length === 0 || backgroundImages[0] === 'ลิงก์รูปที่_1.jpg') return; // ป้องกันเอฟเฟกต์ทำงานหากยังไม่ได้ใส่ลิงก์จริง
+            if (backgroundImages.length === 0) return;
             currentImgIndex = (currentImgIndex + 1) % backgroundImages.length;
             document.body.style.backgroundImage = `url('${backgroundImages[currentImgIndex]}')`;
         }
 
-        // สั่งทำงานฟังก์ชันเปลี่ยนรูปภาพทุก ๆ 5000 มิลลิวินาที (5 วินาที)
+        // เริ่มโหลดรูปภาพล่วงหน้า และตั้งค่าสลับภาพทันทีทุกๆ 5 วินาที (5000ms)
+        preloadBackgroundImages();
         setInterval(changeBackground, 5000);
 
 
@@ -406,18 +400,18 @@
             }
         }
 
-        // ================= แก้ไขระบบ Lanyard API ดึงสถานะและรูปภาพออโต้แบบสมบูรณ์ =================
+        // ================= ระบบ Lanyard API ดึงสถานะและรูปภาพออโต้ =================
         function applyDiscordStatus(card, status, avatarId, discordId) {
             const wrapper = card.querySelector('.avatar-wrapper');
             const avatarImg = card.querySelector('.user-avatar');
             if (!wrapper) return;
 
-            // 1. สลับรูปโปรไฟล์ออโต้ตามดิสคอร์ด
+            // สลับรูปโปรไฟล์ออโต้ตามดิสคอร์ด
             if (avatarId && avatarImg) {
                 avatarImg.src = `https://cdn.discordapp.com/avatars/${discordId}/${avatarId}.png?size=128`;
             }
 
-            // 2. ตรวจสอบ/สร้างจุดแสดงวงกลมสถานะ
+            // ตรวจสอบ/สร้างจุดแสดงวงกลมสถานะ
             let statusDot = card.querySelector('.user-status');
             if (!statusDot) {
                 statusDot = document.createElement('span');
@@ -431,7 +425,7 @@
             statusDot.innerHTML = "";
             wrapper.classList.remove('opacity-60');
 
-            // 3. จัดการแสดงผลสีสถานะ
+            // จัดการแสดงผลสีสถานะ
             if (status === 'online') {
                 statusDot.classList.add('bg-[#23a55a]');
             } else if (status === 'idle') {
