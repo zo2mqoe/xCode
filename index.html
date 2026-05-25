@@ -36,7 +36,7 @@
         }
     </style>
 </head>
-<body class="bg-[#fff0f6] text-gray-700 min-h-screen flex flex-col justify-between selection:bg-pink-200 selection:text-pink-800 relative overflow-x-hidden">
+<body class="bg-[#fff0f6] bg-cover bg-center bg-no-repeat text-gray-700 min-h-screen flex flex-col justify-between selection:bg-pink-200 selection:text-pink-800 relative overflow-x-hidden transition-[background-image] duration-1000">
 
     <audio id="bgMusic" src="Hurry up feat.7Vibes.mp3" loop></audio>
 
@@ -104,7 +104,7 @@
                 </div>
 
                 <div class="member-card flex items-center justify-between p-3.5 bg-[#fdf8fa] hover:bg-pink-50/50 border border-pink-100 rounded-lg transition-all duration-150" data-category="winterfell" data-discord-id="1359811739650228416">
-                    <div class="flex items-center gap-3.5">
+                   <div class="flex items-center gap-3.5">
                         <div class="avatar-wrapper w-11 h-11 rounded-full bg-pink-100 border border-pink-200 flex-shrink-0 flex items-center justify-center overflow-hidden relative">
                             <img class="user-avatar w-full h-full object-cover" src="https://i.postimg.cc/c1hz2BLP/KHIT-KON.png" alt="Arthur">
                         </div>
@@ -278,6 +278,29 @@
 
     <script>
         let isMusicPlaying = false;
+        
+        // ================= ระบบเปลี่ยนรูปพื้นหลังอัตโนมัติทุกๆ 5 วินาที =================
+        // เปลี่ยน 'ลิงก์รูปที่_x.jpg' ด้านล่างนี้ให้เป็น URL รูปภาพจริงของคุณนะครับ
+        const backgroundImages = [
+            'https://i.postimg.cc/ZnNRV6QM/cc29c1ead492ca4fab7efc6ccfffee66.jpg',
+            'https://i.postimg.cc/PJDx2179/a75f58c361ec69fe013849afba5cd295.jpg',
+            'https://i.postimg.cc/fydLBYP6/88a505e56e460b454778df93733018fe.jpg',
+            'https://i.postimg.cc/L5PXNj7F/51f55646a417a13797407d8ae3a4defc.jpg',
+            'https://i.postimg.cc/MHBTd14k/4c1d4cf556bdbe99179f60318f31494a.jpg',
+            'https://i.postimg.cc/j2f5Zy1p/37917973db45179f605eee51ba18bb8c.jpg'
+        ];
+
+        let currentImgIndex = 0;
+
+        function changeBackground() {
+            if (backgroundImages.length === 0 || backgroundImages[0] === 'ลิงก์รูปที่_1.jpg') return; // ป้องกันเอฟเฟกต์ทำงานหากยังไม่ได้ใส่ลิงก์จริง
+            currentImgIndex = (currentImgIndex + 1) % backgroundImages.length;
+            document.body.style.backgroundImage = `url('${backgroundImages[currentImgIndex]}')`;
+        }
+
+        // สั่งทำงานฟังก์ชันเปลี่ยนรูปภาพทุก ๆ 5000 มิลลิวินาที (5 วินาที)
+        setInterval(changeBackground, 5000);
+
 
         // 1. ฟังก์ชันทำงานเมื่อผู้ใช้คลิกโลโก้หน้าแรก
         function startWebsite() {
@@ -290,7 +313,6 @@
             }).catch(error => {
                 console.log("การเล่นเพลงอัตโนมัติถูกบล็อกชั่วคราว: ", error);
             });
-
             logo.classList.add('slide-down-fade');
 
             setTimeout(() => {
@@ -405,7 +427,6 @@
                 statusDot.classList.add('bg-[#f23f43]');
                 statusDot.innerHTML = `<span class="w-1.5 h-0.5 bg-white rounded-full"></span>`;
             } else {
-                // Offline หรือ หาไม่เจอ
                 statusDot.classList.add('bg-[#80848e]');
                 statusDot.innerHTML = `<span class="w-1.5 h-1.5 bg-[#fdf8fa] rounded-full"></span>`;
                 wrapper.classList.add('opacity-60');
@@ -414,8 +435,6 @@
 
         async function loadAllMembersStatus() {
             const cards = document.querySelectorAll('.member-card');
-            
-            // ใช้โครงสร้างแบบ loop เสถียรสูง มั่นใจได้ว่าข้อมูลถูกเรียกทำงานครบทุกคนแน่นอน
             for (const card of cards) {
                 const discordId = card.getAttribute('data-discord-id');
                 if (!discordId || discordId.includes('ใส่_ID')) continue;
@@ -425,7 +444,7 @@
                     const json = await res.json();
 
                     if (json.success && json.data) {
-                        const status = json.data.discord_status; 
+                        const status = json.data.discord_status;
                         const avatarId = json.data.discord_user.avatar;
                         applyDiscordStatus(card, status, avatarId, discordId);
                     }
@@ -435,7 +454,6 @@
             }
         }
 
-        // เรียกทำงานทันทีเมื่อหน้าเว็บโหลดเสร็จ และอัปเดตทุกๆ 15 วินาที
         window.addEventListener('DOMContentLoaded', loadAllMembersStatus);
         setInterval(loadAllMembersStatus, 15000);
     </script>
